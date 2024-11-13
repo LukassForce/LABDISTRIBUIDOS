@@ -1,7 +1,5 @@
-# Cálculo de Ganancia de Información
-
+# Cálculo de Ganancia de Información para selección de variables
 import numpy as np
-import matplotlib.pyplot as plt
 
 # Entropía de Dispersión
 def dispersion_entropy(series, m_dim, time_lag, symbols_count):
@@ -63,27 +61,10 @@ def main():
     info_gains = info_gain(features, target, m_dim, time_lag, symbols_count)
     store_info_gain_results(info_gains, features, top_k_vars)
     print("Ganancia de información calculada y guardada.")
- 
-    # Gráfico de la ganancia de información por variable
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(info_gains) + 1), info_gains, marker='o', linestyle='-')
-    plt.title("Ganancia de Información vs Número de Variable")
-    plt.xlabel("Número de Variable")
-    plt.ylabel("Ganancia de Información")
-    plt.grid()
-    plt.show()
     
     # Gráfico del Top 7 en ganancia de información
     top_7_indices = np.argsort(info_gains)[-7:][::-1]
     top_7_values = info_gains[top_7_indices]
-    
-    plt.figure(figsize=(10, 6))
-    plt.bar(range(1, 8), top_7_values, tick_label=[f'Var {i+1}' for i in top_7_indices])
-    plt.title("Top 7 Variables por Ganancia de Información")
-    plt.xlabel("Variables")
-    plt.ylabel("Ganancia de Información")
-    plt.grid(axis='y')
-    plt.show()
 
 if __name__ == '__main__':
     main()
