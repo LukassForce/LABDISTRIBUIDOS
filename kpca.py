@@ -1,79 +1,57 @@
 import numpy as np
 
-# Gaussian Kernel
-def kernel_gauss(X, sigma):
-    """
-    Calcula el kernel gaussiano de la matriz de datos X.
-    
-    Parámetros:
-    X     -- Matriz de datos de entrada.
-    sigma -- Parámetro de ancho del kernel.
-    
-    Retorna:
-    Matriz del kernel K.
-    """
-    # Calcular las distancias cuadradas
-    sq_dists = np.sum(X**2, axis=1).reshape(-1, 1) + np.sum(X**2, axis=1) - 2 * np.dot(X, X.T)
-    K = np.exp(-sq_dists / (2 * sigma**2))
-    return K
+# Radial Basis Function (RBF) Kernel
+def rbf_kernel(data_matrix, kernel_width):
+    squared_distances = np.sum(data_matrix**2, axis=1).reshape(-1, 1) + \
+                        np.sum(data_matrix**2, axis=1) - 2 * np.dot(data_matrix, data_matrix.T)
+    kernel_matrix = np.exp(-squared_distances / (2 * kernel_width ** 2))
+    return kernel_matrix
 
-# Kernel-PCA usando Kernel Gaussiano
-def kpca_gauss(X, sigma, top_k):
-    """
-    Aplica Kernel PCA con un kernel gaussiano en los datos X.
-    
-    Parámetros:
-    X      -- Matriz de datos de entrada.
-    sigma  -- Parámetro de ancho del kernel.
-    top_k  -- Número de componentes principales a seleccionar.
-    
-    Retorna:
-    X_kpca -- Datos proyectados en los top_k componentes principales.
-    """
-    # Calcular el kernel gaussiano
-    K = kernel_gauss(X, sigma)
-    
-    # Centrar el kernel
-    N = K.shape[0]
-    one_n = np.ones((N, N)) / N
-    K_centered = K - one_n @ K - K @ one_n + one_n @ K @ one_n
-    
-    # Eigen descomposición
-    eigvals, eigvecs = np.linalg.eigh(K_centered)
-    
-    # Seleccionar los top_k componentes principales
-    X_kpca = eigvecs[:, -top_k:] @ np.diag(np.sqrt(eigvals[-top_k:]))
-    
-    return X_kpca
+# Centralize the Kernel Matrix
+def centralize_kernel(kernel_matrix):
+    num_samples = kernel_matrix.shape[0]
+    one_matrix = np.ones((num_samples, num_samples)) / num_samples
+    kernel_centered = kernel_matrix - one_matrix @ kernel_matrix - kernel_matrix @ one_matrix + one_matrix @ kernel_matrix @ one_matrix
+    return kernel_centered
 
-def main():
-    # Cargar los datos desde la salida de la etapa IG.py
-    data = np.genfromtxt('outputData/DataIG.csv', delimiter=',')
-    
-    # Seleccionar las primeras 3000 muestras
-    data_3000 = data[:3000, :]
-    
-    # Guardar las primeras 3000 muestras en un nuevo archivo Data.csv
-    np.savetxt('outputData/Data.csv', data_3000, delimiter=',', fmt='%f')
+# Principal Component Extraction with Kernel PCA
+def extract_principal_components(input_data, kernel_width, num_components):
+    kernel_matrix = rbf_kernel(input_data, kernel_width)
+    kernel_centered = centralize_kernel(kernel_matrix)
+    eigenvalues, eigenvectors = np.linalg.eigh(kernel_centered)
+    main_components = eigenvectors[:, -num_components:] @ np.diag(np.sqrt(eigenvalues[-num_components:]))
+    return main_components
+
+# Load and Process Data for Kernel PCA
+def load_and_process_kpca_data():
+    # Leer configuración de KPCA desde el archivo config.csv
+    config = np.loadtxt("data/config.csv", delimiter=",")
+    kernel_width = config[4]    # Ancho del kernel RBF
+    top_components = int(config[5])   # Número de componentes principales
+
+    # Cargar el archivo DataIG.csv y seleccionar las primeras 3000 muestras
+    raw_data = np.genfromtxt('outputData/DataIG.csv', delimiter=',')
+    subset_data = raw_data[:3000, :]
+    np.savetxt('outputData/Data.csv', subset_data, delimiter=',', fmt='%f')
     print("Archivo Data.csv creado exitosamente.")
+
+    # Separar características y etiquetas
+    feature_matrix = subset_data[:, :-1]
+    class_labels = subset_data[:, -1]
+
+    # Aplicar Kernel PCA
+    transformed_data = extract_principal_components(feature_matrix, kernel_width, top_components)
+
+    # Combinar los datos transformados con las etiquetas
+    final_data_with_labels = np.hstack((transformed_data, class_labels.reshape(-1, 1)))
     
-    # Separar las etiquetas de las clases
-    labels = data_3000[:, -1]
-    data_3000 = data_3000[:, :-1]
-    
-    # Parámetros de KPCA
-    sigma = 6.5  # Ancho del Kernel
-    top_k = 10   # Número de variables menos redundantes
-    
-    # Aplicar KPCA
-    data_kpca = kpca_gauss(data_3000, sigma, top_k)
-    
-    # Combinar los datos proyectados con las etiquetas
-    data_kpca_with_labels = np.hstack((data_kpca, labels.reshape(-1, 1)))
-    
-    # Crear archivo de salida DataKpca.csv
-    np.savetxt('outputData/DataKpca.csv', data_kpca_with_labels, delimiter=',', fmt='%f')
+    # Guardar el resultado en el archivo DataKpca.csv
+    np.savetxt('outputData/DataKpca.csv', final_data_with_labels, delimiter=',', fmt='%f')
     print("Archivo DataKpca.csv creado exitosamente.")
 
-if __name__ == "__main__":
-    main()
+# Run the Complete KPCA Process
+def execute_kpca():
+    load_and_process_kpca_data()
+
+if __name__ == '__main__':
+    execute_kpca()

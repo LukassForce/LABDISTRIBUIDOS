@@ -1,116 +1,89 @@
+# Cálculo de Ganancia de Información
+
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Entropía de Dispersión
-def entropy_disp(data, m, tau, c):
-    """
-    Calcula la entropía de dispersión para los datos dados.
-    
-    Parámetros:
-    data -- Array de datos de entrada.
-    m    -- Dimensión del vector embedding.
-    tau  -- Distancia entre elementos consecutivos del vector embedding.
-    c    -- Número de símbolos (patrones) de dispersión.
-    
-    Retorna:
-    Entropía de dispersión.
-    """
-    # Normalización de datos entre 0 y 1
-    data_min = np.min(data)
-    data_max = np.max(data)
-    if data_min == data_max:
-        data_norm = np.zeros_like(data)
-    else:
-        data_norm = (data - data_min) / (data_max - data_min)
-    
-    # Creación de patrones de dispersión
-    patterns = []
-    for i in range(len(data_norm) - (m - 1) * tau):
-        pattern = tuple((data_norm[i + j * tau] * c).astype(int) for j in range(m))
-        patterns.append(pattern)
-    
-    # Contar frecuencias de cada patrón
-    unique_patterns, counts = np.unique(patterns, axis=0, return_counts=True)
-    probabilities = counts / counts.sum()
-    
-    # Calcular la entropía de dispersión
-    entropy = -np.sum(probabilities * np.log2(probabilities))
-    return entropy
+def dispersion_entropy(series, m_dim, time_lag, symbols_count):
+    n_points = series.shape[0]
+    n_embeddings = n_points - (m_dim - 1) * time_lag
+    embedded_data = np.array([series[i: i + m_dim * time_lag: time_lag] for i in range(n_embeddings)])
+    symbol_patterns = np.round((embedded_data + 0.5) * (symbols_count - 1)).astype(int)
+    unique_patterns, pattern_counts = np.unique(symbol_patterns, axis=0, return_counts=True)
+    probabilities = pattern_counts / n_embeddings
+    return -np.sum(probabilities * np.log2(probabilities))
 
-# Normalización Sigmoidal
-def norm_data_sigmoidal(data):
-    """
-    Normaliza los datos usando la función sigmoidal.
-    
-    Parámetros:
-    data -- Array de datos de entrada.
-    
-    Retorna:
-    Datos normalizados.
-    """
-    return 1 / (1 + np.exp(-data))
+# Normalización sigmoidal de los datos
+def sigmoid_normalisation(data):
+    avg = data.mean(axis=0)
+    std_dev = data.std(axis=0)
+    return 1 / (1 + np.exp(-(data - avg) / (std_dev + 1e-8)))
 
-# Ganancia de Información
-def inform_gain(data, labels, m, tau, c):
-    """
-    Calcula la ganancia de información de cada variable en los datos.
-    
-    Parámetros:
-    data   -- Matriz de datos de entrada.
-    labels -- Etiquetas de las clases (última columna de `data`).
-    m      -- Dimensión del vector embedding.
-    tau    -- Distancia entre elementos consecutivos del vector embedding.
-    c      -- Número de símbolos (patrones) de dispersión.
-    
-    Retorna:
-    Array con la ganancia de información para cada variable.
-    """
-    # Calcular la entropía de dispersión para las etiquetas
-    H_y = entropy_disp(labels, m, tau, c)
-    
-    # Calcular la ganancia de información de cada variable
-    info_gain_values = []
-    for i in range(data.shape[1]):
-        # Entropía condicional de la variable dada la clase
-        H_y_given_x = entropy_disp(data[:, i], m, tau, c)
-        info_gain = H_y - H_y_given_x
-        info_gain_values.append(info_gain)
-    
-    return np.array(info_gain_values)
+# Cálculo de Ganancia de Información
+def info_gain(features, target, m_dim, time_lag, symbols_count):
+    base_entropy = dispersion_entropy(target, m_dim, time_lag, symbols_count)
+    info_gains = []
+    for col in range(features.shape[1]):
+        cond_entropy = 0
+        for unique_value in np.unique(features[:, col]):
+            subset_target = target[features[:, col] == unique_value]
+            if len(subset_target) > 0:
+                subset_entropy = dispersion_entropy(subset_target, m_dim, time_lag, symbols_count)
+                cond_entropy += (len(subset_target) / len(target)) * subset_entropy
+        info_gains.append(base_entropy - cond_entropy)
+    return np.array(info_gains)
 
+# Cargar DataClass
+def load_and_preprocess_data():
+    params = np.loadtxt("data/config.csv", delimiter=",")
+    m_dim, time_lag, symbols_count, top_k_vars = int(params[0]), int(params[1]), int(params[2]), int(params[3])
+    dataset = np.genfromtxt("outputData/DataClass.csv", delimiter=",", dtype=float)
+    features, target = dataset[:, :-1], dataset[:, -1]
+    features = sigmoid_normalisation(features)
+    return features, target, m_dim, time_lag, symbols_count, top_k_vars
+
+# Guardar resultados de la ganancia de información
+def store_info_gain_results(info_gains, features, top_k_vars):
+    # Índices de variables en orden descendente de ganancia de información
+    sorted_indices = np.argsort(info_gains)[::-1]
+    
+    # Guardar los índices en Idx_variable.csv
+    np.savetxt("outputData/Idx_variable.csv", sorted_indices, fmt="%d", delimiter=",")
+    
+    # Seleccionar las Top-K variables
+    best_indices = sorted_indices[:top_k_vars]
+    top_features = features[:, best_indices]
+    
+    # Guardar los datos seleccionados en DataIG.csv
+    np.savetxt("outputData/DataIG.csv", top_features, delimiter=",")
+
+# Proceso principal
 def main():
-    # Cargar los datos desde la salida de la ETL
-    data = np.genfromtxt('outputData/DataClass.csv', delimiter=',')
+    features, target, m_dim, time_lag, symbols_count, top_k_vars = load_and_preprocess_data()
+    info_gains = info_gain(features, target, m_dim, time_lag, symbols_count)
+    store_info_gain_results(info_gains, features, top_k_vars)
+    print("Ganancia de información calculada y guardada.")
+ 
+    # Gráfico de la ganancia de información por variable
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(1, len(info_gains) + 1), info_gains, marker='o', linestyle='-')
+    plt.title("Ganancia de Información vs Número de Variable")
+    plt.xlabel("Número de Variable")
+    plt.ylabel("Ganancia de Información")
+    plt.grid()
+    plt.show()
     
-    # Separar las etiquetas de las clases
-    labels = data[:, -1]
-    data = data[:, :-1]
+    # Gráfico del Top 7 en ganancia de información
+    top_7_indices = np.argsort(info_gains)[-7:][::-1]
+    top_7_values = info_gains[top_7_indices]
     
-    # Normalizar las variables usando la función sigmoidal
-    data_normalized = norm_data_sigmoidal(data)
-    
-    # Parámetros de Entropía Dispersión
-    m = 3  # Dimensión embedding
-    tau = 2  # Factor de retardo
-    c = 3  # Número de símbolos
-    
-    # Calcular la ganancia de información
-    info_gain_values = inform_gain(data_normalized, labels, m, tau, c)
-    
-    # Parámetros Top-K
-    K = 25  # Número de variables relevantes seleccionadas
-    
-    # Obtener los índices de las K variables más relevantes
-    top_k_indices = np.argsort(info_gain_values)[-K:][::-1]
-    
-    # Crear archivos de salida
-    np.savetxt('outputData/Idx_variable.csv', top_k_indices, delimiter=',', fmt='%d')
-    print("Archivo Idx_variable.csv creado exitosamente.")
-    
-    # Crear DataIG.csv con las variables más relevantes
-    data_ig = data_normalized[:, top_k_indices]
-    data_ig_with_labels = np.hstack((data_ig, labels.reshape(-1, 1)))
-    np.savetxt('outputData/DataIG.csv', data_ig_with_labels, delimiter=',', fmt='%f')
-    print("Archivo DataIG.csv creado exitosamente.")
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(1, 8), top_7_values, tick_label=[f'Var {i+1}' for i in top_7_indices])
+    plt.title("Top 7 Variables por Ganancia de Información")
+    plt.xlabel("Variables")
+    plt.ylabel("Ganancia de Información")
+    plt.grid(axis='y')
+    plt.show()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
